@@ -77,7 +77,7 @@ export function RoleReveal({
                 size="lg"
               >
                 <Eye className="h-5 w-5 mr-2" />
-                Ver mi rol
+                Revelar
               </Button>
             </div>
           ) : (
@@ -98,7 +98,7 @@ export function RoleReveal({
                     isImpostor ? "text-impostor" : "text-success"
                   )}
                 >
-                  {isImpostor ? "¡IMPOSTOR!" : "Jugador"}
+                  {isImpostor ? "¡IMPOSTOR!" : "¡INOCENTE!"}
                 </h2>
                 
                 {isImpostor ? (
