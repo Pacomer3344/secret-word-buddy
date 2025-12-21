@@ -106,7 +106,11 @@ export function useImpostorGame() {
   }, []);
 
   const selectMode = useCallback((mode: GameMode) => {
-    setState(prev => ({ ...prev, mode, phase: 'setup' }));
+    if (mode === null) {
+      setState(initialState);
+    } else {
+      setState(prev => ({ ...prev, mode, phase: 'setup' }));
+    }
   }, []);
 
   const goHome = useCallback(() => {

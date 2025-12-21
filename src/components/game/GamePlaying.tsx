@@ -1,5 +1,29 @@
-import { RefreshCw, Settings } from 'lucide-react';
+import { RefreshCw, Home, HelpCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface GamePlayingProps {
   playerCount: number;
@@ -16,10 +40,73 @@ export function GamePlaying({
 }: GamePlayingProps) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6">
-      <div className="w-full max-w-md space-y-8 text-center">
-        {/* Main Message */}
-        <div className="space-y-4">
+      <div className="w-full max-w-md space-y-8">
+        {/* Header with navigation */}
+        <div className="flex items-center justify-between">
+          <AlertDialog>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <AlertDialogTrigger asChild>
+                  <Button variant="ghost" size="icon" className="rounded-full">
+                    <Home className="h-5 w-5" />
+                  </Button>
+                </AlertDialogTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Volver al inicio</TooltipContent>
+            </Tooltip>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>¿Salir del juego?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Se perderá el progreso de la partida actual. Las palabras configuradas se mantendrán.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction onClick={onReset}>Salir</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
           <div className="text-8xl animate-bounce-in">🎭</div>
+
+          <Dialog>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DialogTrigger asChild>
+                  <Button variant="ghost" size="icon" className="rounded-full">
+                    <HelpCircle className="h-5 w-5" />
+                  </Button>
+                </DialogTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Ayuda</TooltipContent>
+            </Tooltip>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle className="font-display text-xl">Consejos de juego</DialogTitle>
+                <DialogDescription asChild>
+                  <div className="space-y-4 pt-4 text-left">
+                    <div>
+                      <h4 className="font-medium text-foreground">Para inocentes</h4>
+                      <p className="text-sm text-muted-foreground">Da pistas sutiles que demuestren que conoces la palabra sin revelarla.</p>
+                    </div>
+                    <div>
+                      <h4 className="font-medium text-foreground">Para impostores</h4>
+                      <p className="text-sm text-muted-foreground">Escucha atentamente y da respuestas vagas pero convincentes.</p>
+                    </div>
+                    <div>
+                      <h4 className="font-medium text-foreground">Votación</h4>
+                      <p className="text-sm text-muted-foreground">Después de la ronda de pistas, voten quién creen que es el impostor.</p>
+                    </div>
+                  </div>
+                </DialogDescription>
+              </DialogHeader>
+            </DialogContent>
+          </Dialog>
+        </div>
+
+        {/* Main Message */}
+        <div className="text-center space-y-4">
           <h1 className="text-4xl sm:text-5xl font-display font-bold text-primary">
             ¡A jugar!
           </h1>
@@ -36,7 +123,7 @@ export function GamePlaying({
                 {playerCount - impostorCount}
               </p>
               <p className="text-sm text-muted-foreground">
-                Jugadores
+                Inocentes
               </p>
             </div>
             <div className="w-px bg-border" />
@@ -61,25 +148,55 @@ export function GamePlaying({
           </ul>
         </div>
 
-        {/* Actions */}
+        {/* Actions with confirmation */}
         <div className="space-y-3">
-          <Button
-            onClick={onNewRound}
-            className="w-full h-14 text-lg font-display font-semibold rounded-xl"
-            size="lg"
-          >
-            <RefreshCw className="h-5 w-5 mr-2" />
-            Nueva Ronda
-          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                className="w-full h-14 text-lg font-display font-semibold rounded-xl"
+                size="lg"
+              >
+                <RefreshCw className="h-5 w-5 mr-2" />
+                Nueva Ronda
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>¿Iniciar nueva ronda?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Se asignará una nueva palabra y se redistribuirán los roles entre los jugadores.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction onClick={onNewRound}>Nueva Ronda</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
           
-          <Button
-            onClick={onReset}
-            variant="outline"
-            className="w-full h-12 font-display rounded-xl"
-          >
-            <Settings className="h-4 w-4 mr-2" />
-            Volver a Configuración
-          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="outline"
+                className="w-full h-12 font-display rounded-xl"
+              >
+                <Home className="h-4 w-4 mr-2" />
+                Volver a Configuración
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>¿Volver a configuración?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Podrás modificar las palabras y el número de jugadores. Las palabras actuales se mantendrán.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction onClick={onReset}>Ir a Configuración</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
     </div>
