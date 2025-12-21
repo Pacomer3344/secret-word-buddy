@@ -1,3 +1,4 @@
+import { HomeScreen } from '@/components/game/HomeScreen';
 import { GameSetup } from '@/components/game/GameSetup';
 import { RoleReveal } from '@/components/game/RoleReveal';
 import { GamePlaying } from '@/components/game/GamePlaying';
@@ -14,11 +15,16 @@ const Index = () => {
     nextPlayer,
     newRound,
     resetGame,
+    selectMode,
     canStartGame,
   } = useImpostorGame();
 
   return (
     <>
+      {state.phase === 'home' && (
+        <HomeScreen onSelectMode={selectMode} />
+      )}
+
       {state.phase === 'setup' && (
         <GameSetup
           words={state.words}
