@@ -1,8 +1,21 @@
 import { useState } from 'react';
-import { Plus, X, Users, UserX, Play } from 'lucide-react';
+import { Plus, X, Users, UserX, Play, Home, HelpCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface GameSetupProps {
   words: string[];
@@ -13,6 +26,7 @@ interface GameSetupProps {
   onPlayerCountChange: (count: number) => void;
   onImpostorCountChange: (count: number) => void;
   onStartGame: () => void;
+  onGoHome: () => void;
   canStart: boolean;
 }
 
@@ -25,6 +39,7 @@ export function GameSetup({
   onPlayerCountChange,
   onImpostorCountChange,
   onStartGame,
+  onGoHome,
   canStart,
 }: GameSetupProps) {
   const [newWord, setNewWord] = useState('');
@@ -44,18 +59,83 @@ export function GameSetup({
 
   const maxImpostors = Math.max(1, Math.floor(playerCount / 2));
 
+  // Validation messages for better error prevention
+  const getValidationMessage = () => {
+    if (words.length === 0) return 'Agrega al menos una palabra';
+    if (playerCount < 2) return 'Se necesitan al menos 2 jugadores';
+    if (impostorCount >= playerCount) return 'Muy pocos jugadores para tantos impostores';
+    return null;
+  };
+
+  const validationMessage = getValidationMessage();
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6">
       <div className="w-full max-w-md space-y-8">
-        {/* Header */}
-        <div className="text-center space-y-2">
-          <h1 className="text-4xl sm:text-5xl font-display font-bold text-primary">
-            🎭 Impostor
-          </h1>
-          <p className="text-muted-foreground">
-            Configura tu partida
-          </p>
+        {/* Header with navigation */}
+        <div className="flex items-center justify-between">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={onGoHome}
+                className="rounded-full"
+              >
+                <Home className="h-5 w-5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Volver al inicio</TooltipContent>
+          </Tooltip>
+
+          <div className="text-center flex-1">
+            <h1 className="text-3xl sm:text-4xl font-display font-bold text-primary">
+              🎭 Impostor
+            </h1>
+          </div>
+
+          <Dialog>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DialogTrigger asChild>
+                  <Button variant="ghost" size="icon" className="rounded-full">
+                    <HelpCircle className="h-5 w-5" />
+                  </Button>
+                </DialogTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Ayuda</TooltipContent>
+            </Tooltip>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle className="font-display text-xl">¿Cómo jugar?</DialogTitle>
+                <DialogDescription asChild>
+                  <div className="space-y-4 pt-4 text-left">
+                    <div>
+                      <h4 className="font-medium text-foreground">1. Configuración</h4>
+                      <p className="text-sm text-muted-foreground">Agrega palabras, define el número de jugadores e impostores.</p>
+                    </div>
+                    <div>
+                      <h4 className="font-medium text-foreground">2. Reparto de roles</h4>
+                      <p className="text-sm text-muted-foreground">Cada jugador verá si es inocente (con la palabra) o impostor.</p>
+                    </div>
+                    <div>
+                      <h4 className="font-medium text-foreground">3. Juego</h4>
+                      <p className="text-sm text-muted-foreground">Los jugadores dicen algo relacionado con la palabra. El impostor debe fingir.</p>
+                    </div>
+                    <div>
+                      <h4 className="font-medium text-foreground">4. Votación</h4>
+                      <p className="text-sm text-muted-foreground">Voten para eliminar al sospechoso. ¡Descubran al impostor!</p>
+                    </div>
+                  </div>
+                </DialogDescription>
+              </DialogHeader>
+            </DialogContent>
+          </Dialog>
         </div>
+
+        <p className="text-center text-muted-foreground -mt-4">
+          Configura tu partida
+        </p>
 
         {/* Word Input */}
         <div className="bg-card rounded-2xl p-6 shadow-lg border border-border space-y-4">
@@ -163,16 +243,23 @@ export function GameSetup({
           </div>
         </div>
 
-        {/* Start Button */}
-        <Button
-          onClick={onStartGame}
-          disabled={!canStart}
-          className="w-full h-14 text-lg font-display font-semibold rounded-xl shadow-lg"
-          size="lg"
-        >
-          <Play className="h-5 w-5 mr-2" />
-          Iniciar Juego
-        </Button>
+        {/* Start Button with validation feedback */}
+        <div className="space-y-2">
+          <Button
+            onClick={onStartGame}
+            disabled={!canStart}
+            className="w-full h-14 text-lg font-display font-semibold rounded-xl shadow-lg"
+            size="lg"
+          >
+            <Play className="h-5 w-5 mr-2" />
+            Iniciar Juego
+          </Button>
+          {validationMessage && (
+            <p className="text-center text-sm text-muted-foreground">
+              ⚠️ {validationMessage}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );

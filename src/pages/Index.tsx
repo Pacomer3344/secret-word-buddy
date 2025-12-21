@@ -35,6 +35,7 @@ const Index = () => {
           onPlayerCountChange={setPlayerCount}
           onImpostorCountChange={setImpostorCount}
           onStartGame={startGame}
+          onGoHome={() => selectMode(null)}
           canStart={canStartGame}
         />
       )}
