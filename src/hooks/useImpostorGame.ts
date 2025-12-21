@@ -1,8 +1,10 @@
 import { useState, useCallback } from 'react';
 
-export type GamePhase = 'setup' | 'reveal' | 'playing';
+export type GamePhase = 'home' | 'setup' | 'reveal' | 'playing';
+export type GameMode = 'offline' | 'online' | null;
 
 export interface GameState {
+  mode: GameMode;
   words: string[];
   playerCount: number;
   impostorCount: number;
@@ -13,13 +15,14 @@ export interface GameState {
 }
 
 const initialState: GameState = {
+  mode: null,
   words: [],
   playerCount: 4,
   impostorCount: 1,
   currentWord: '',
   roles: [],
   currentPlayerIndex: 0,
-  phase: 'setup',
+  phase: 'home',
 };
 
 export function useImpostorGame() {
@@ -99,7 +102,15 @@ export function useImpostorGame() {
   }, [startGame]);
 
   const resetGame = useCallback(() => {
-    setState(prev => ({ ...initialState, words: prev.words }));
+    setState(prev => ({ ...initialState, mode: prev.mode, words: prev.words }));
+  }, []);
+
+  const selectMode = useCallback((mode: GameMode) => {
+    setState(prev => ({ ...prev, mode, phase: 'setup' }));
+  }, []);
+
+  const goHome = useCallback(() => {
+    setState(initialState);
   }, []);
 
   const canStartGame = state.words.length > 0 && 
@@ -117,6 +128,8 @@ export function useImpostorGame() {
     nextPlayer,
     newRound,
     resetGame,
+    selectMode,
+    goHome,
     canStartGame,
   };
 }
