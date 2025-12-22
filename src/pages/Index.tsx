@@ -2,6 +2,7 @@ import { HomeScreen } from '@/components/game/HomeScreen';
 import { GameSetup } from '@/components/game/GameSetup';
 import { RoleReveal } from '@/components/game/RoleReveal';
 import { GamePlaying } from '@/components/game/GamePlaying';
+import OnlineGame from '@/components/game/OnlineGame';
 import { useImpostorGame } from '@/hooks/useImpostorGame';
 
 const Index = () => {
@@ -18,6 +19,11 @@ const Index = () => {
     selectMode,
     canStartGame,
   } = useImpostorGame();
+
+  // Online mode has its own flow
+  if (state.mode === 'online') {
+    return <OnlineGame onGoHome={() => selectMode(null)} />;
+  }
 
   return (
     <>

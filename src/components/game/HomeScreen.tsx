@@ -1,4 +1,5 @@
 import { Wifi, WifiOff, Users, Sparkles } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 
@@ -64,9 +65,9 @@ export const HomeScreen = ({ onSelectMode }: HomeScreenProps) => {
                   Cada jugador usa su propio dispositivo
                 </p>
               </div>
-              <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
+              <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-success/10 text-success text-xs font-medium">
                 <Sparkles className="w-3 h-3" />
-                Próximamente
+                ¡Nuevo!
               </div>
             </div>
           </CardContent>
