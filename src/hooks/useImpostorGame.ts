@@ -118,7 +118,7 @@ export function useImpostorGame() {
   }, []);
 
   const canStartGame = state.words.length > 0 && 
-    state.playerCount >= 2 && 
+    state.playerCount >= 3 && 
     state.impostorCount >= 1 && 
     state.impostorCount < state.playerCount;
 

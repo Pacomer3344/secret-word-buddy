@@ -319,7 +319,7 @@ export function useOnlineGame() {
   const startGame = useCallback(async () => {
     if (!state.roomId || !state.isHost) return { error: 'No eres el host' };
     if (state.words.length === 0) return { error: 'Agrega al menos una palabra' };
-    if (state.players.length < 2) return { error: 'Se necesitan al menos 2 jugadores' };
+    if (state.players.length < 3) return { error: 'Se necesitan al menos 3 jugadores' };
 
     try {
       await callGameAction(state.playerId, 'start_game', {
@@ -385,7 +385,7 @@ export function useOnlineGame() {
   }, [state.roomId, state.playerId, state.isHost]);
 
   const canStartGame = state.words.length > 0 && 
-    state.players.length >= 2 && 
+    state.players.length >= 3 && 
     state.impostorCount >= 1 && 
     state.impostorCount < state.players.length;
 
