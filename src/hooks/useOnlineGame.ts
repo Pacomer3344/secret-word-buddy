@@ -13,9 +13,12 @@ export interface OnlineGameState {
   players: Player[];
   words: string[];
   impostorCount: number;
-  currentWord: string | null;
+  currentWord: string | null; // Only set from assigned_word for 'player' role
   myRole: 'player' | 'impostor' | null;
 }
+
+// Edge function URL
+const EDGE_FUNCTION_URL = 'https://tychxbzcoqjhyrkgphxw.supabase.co/functions/v1/game-actions';
 
 export interface Player {
   id: string;
@@ -23,7 +26,26 @@ export interface Player {
   player_name: string;
   is_host: boolean;
   role: string | null;
+  assigned_word: string | null;
 }
+
+// Helper for Edge Function calls
+const callGameAction = async (playerId: string, action: string, data: Record<string, unknown>) => {
+  const response = await fetch(EDGE_FUNCTION_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-player-id': playerId,
+    },
+    body: JSON.stringify({ action, ...data }),
+  });
+  
+  const result = await response.json();
+  if (!response.ok) {
+    throw new Error(result.error || 'Unknown error');
+  }
+  return result;
+};
 
 const generatePlayerId = () => {
   const stored = localStorage.getItem('impostor_player_id');
@@ -114,6 +136,8 @@ export function useOnlineGame() {
               ...prev,
               players: data,
               myRole: myPlayer?.role as 'player' | 'impostor' | null,
+              // Get word from assigned_word (secure: only 'player' role has it)
+              currentWord: myPlayer?.assigned_word || null,
               isHost: myPlayer?.is_host || false,
             }));
           }
@@ -179,6 +203,7 @@ export function useOnlineGame() {
         player_name: state.playerName.trim(),
         is_host: true,
         role: null,
+        assigned_word: null,
       }],
     }));
 
@@ -253,77 +278,61 @@ export function useOnlineGame() {
     const trimmed = word.trim();
     if (!trimmed || state.words.includes(trimmed)) return;
 
-    await supabase
-      .from('game_rooms')
-      .update({ words: [...state.words, trimmed] })
-      .eq('id', state.roomId);
-  }, [state.roomId, state.isHost, state.words]);
+    const newWords = [...state.words, trimmed];
+    try {
+      await callGameAction(state.playerId, 'update_room', {
+        roomId: state.roomId,
+        words: newWords,
+      });
+    } catch (error) {
+      console.error('Error adding word:', error);
+    }
+  }, [state.roomId, state.isHost, state.words, state.playerId]);
 
   const removeWord = useCallback(async (word: string) => {
     if (!state.roomId || !state.isHost) return;
 
-    await supabase
-      .from('game_rooms')
-      .update({ words: state.words.filter(w => w !== word) })
-      .eq('id', state.roomId);
-  }, [state.roomId, state.isHost, state.words]);
+    const newWords = state.words.filter(w => w !== word);
+    try {
+      await callGameAction(state.playerId, 'update_room', {
+        roomId: state.roomId,
+        words: newWords,
+      });
+    } catch (error) {
+      console.error('Error removing word:', error);
+    }
+  }, [state.roomId, state.isHost, state.words, state.playerId]);
 
   const setImpostorCount = useCallback(async (count: number) => {
     if (!state.roomId || !state.isHost) return;
 
-    await supabase
-      .from('game_rooms')
-      .update({ impostor_count: count })
-      .eq('id', state.roomId);
-  }, [state.roomId, state.isHost]);
+    try {
+      await callGameAction(state.playerId, 'update_room', {
+        roomId: state.roomId,
+        impostorCount: count,
+      });
+    } catch (error) {
+      console.error('Error setting impostor count:', error);
+    }
+  }, [state.roomId, state.isHost, state.playerId]);
 
   const startGame = useCallback(async () => {
     if (!state.roomId || !state.isHost) return { error: 'No eres el host' };
     if (state.words.length === 0) return { error: 'Agrega al menos una palabra' };
     if (state.players.length < 2) return { error: 'Se necesitan al menos 2 jugadores' };
 
-    // Select random word
-    const randomWord = state.words[Math.floor(Math.random() * state.words.length)];
-
-    // Assign roles
-    const playerCount = state.players.length;
-    const impostorCount = Math.min(state.impostorCount, Math.floor(playerCount / 2));
-    const roles: ('player' | 'impostor')[] = Array(playerCount).fill('player');
-    const impostorIndices = new Set<number>();
-    
-    while (impostorIndices.size < impostorCount) {
-      impostorIndices.add(Math.floor(Math.random() * playerCount));
+    try {
+      await callGameAction(state.playerId, 'start_game', {
+        roomId: state.roomId,
+        words: state.words,
+        impostorCount: state.impostorCount,
+      });
+      return { success: true };
+    } catch (error) {
+      console.error('Error starting game:', error);
+      return { error: error instanceof Error ? error.message : 'Error al iniciar' };
     }
-    
-    impostorIndices.forEach(i => {
-      roles[i] = 'impostor';
-    });
-
-    // Shuffle roles
-    for (let i = roles.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [roles[i], roles[j]] = [roles[j], roles[i]];
-    }
-
-    // Update each player's role
-    for (let i = 0; i < state.players.length; i++) {
-      await supabase
-        .from('room_players')
-        .update({ role: roles[i] })
-        .eq('id', state.players[i].id);
-    }
-
-    // Update room status
-    await supabase
-      .from('game_rooms')
-      .update({ 
-        current_word: randomWord,
-        status: 'playing',
-      })
-      .eq('id', state.roomId);
-
-    return { success: true };
-  }, [state.roomId, state.isHost, state.words, state.players, state.impostorCount]);
+  }, [state.roomId, state.isHost, state.words, state.players, state.impostorCount, state.playerId]);
 
   const confirmRole = useCallback(() => {
     setState(prev => ({ ...prev, phase: 'playing' }));
@@ -332,41 +341,35 @@ export function useOnlineGame() {
   const newRound = useCallback(async () => {
     if (!state.roomId || !state.isHost) return;
 
-    // Reset roles
-    for (const player of state.players) {
-      await supabase
-        .from('room_players')
-        .update({ role: null })
-        .eq('id', player.id);
+    try {
+      await callGameAction(state.playerId, 'new_round', {
+        roomId: state.roomId,
+      });
+      setState(prev => ({ ...prev, phase: 'waiting', myRole: null, currentWord: null }));
+    } catch (error) {
+      console.error('Error starting new round:', error);
     }
-
-    // Reset room
-    await supabase
-      .from('game_rooms')
-      .update({ 
-        current_word: null,
-        status: 'waiting',
-      })
-      .eq('id', state.roomId);
-
-    setState(prev => ({ ...prev, phase: 'waiting', myRole: null }));
-  }, [state.roomId, state.isHost, state.players]);
+  }, [state.roomId, state.isHost, state.playerId]);
 
   const leaveRoom = useCallback(async () => {
     if (!state.roomId) return;
 
-    await supabase
-      .from('room_players')
-      .delete()
-      .eq('room_id', state.roomId)
-      .eq('player_id', state.playerId);
-
-    // If host leaves, delete the room
+    // If host leaves, use edge function to delete room properly
     if (state.isHost) {
+      try {
+        await callGameAction(state.playerId, 'delete_room', {
+          roomId: state.roomId,
+        });
+      } catch (error) {
+        console.error('Error deleting room:', error);
+      }
+    } else {
+      // Non-host can leave directly
       await supabase
-        .from('game_rooms')
+        .from('room_players')
         .delete()
-        .eq('id', state.roomId);
+        .eq('room_id', state.roomId)
+        .eq('player_id', state.playerId);
     }
 
     setState(prev => ({
@@ -377,6 +380,7 @@ export function useOnlineGame() {
       isHost: false,
       players: [],
       myRole: null,
+      currentWord: null,
     }));
   }, [state.roomId, state.playerId, state.isHost]);
 
