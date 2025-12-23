@@ -197,9 +197,9 @@ export default function WaitingRoom({
             {/* Words */}
             <Card>
               <CardHeader>
-                <CardTitle>Palabras Secretas</CardTitle>
+                <CardTitle>Banco de Palabras</CardTitle>
                 <CardDescription>
-                  Agrega las palabras para el juego
+                  Se elegirá una palabra al azar para cada ronda
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">

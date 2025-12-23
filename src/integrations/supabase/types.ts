@@ -49,6 +49,7 @@ export type Database = {
       }
       room_players: {
         Row: {
+          assigned_word: string | null
           id: string
           is_host: boolean | null
           joined_at: string
@@ -58,6 +59,7 @@ export type Database = {
           room_id: string
         }
         Insert: {
+          assigned_word?: string | null
           id?: string
           is_host?: boolean | null
           joined_at?: string
@@ -67,6 +69,7 @@ export type Database = {
           room_id: string
         }
         Update: {
+          assigned_word?: string | null
           id?: string
           is_host?: boolean | null
           joined_at?: string
