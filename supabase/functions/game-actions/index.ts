@@ -3,7 +3,29 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-player-id',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-player-id, x-player-secret',
+};
+
+// Verify player identity using the stored secret
+const verifyPlayer = async (supabase: any, playerId: string, playerSecret: string, roomId: string) => {
+  const { data: player, error } = await supabase
+    .from('room_players')
+    .select('id, player_id, player_secret, is_host')
+    .eq('room_id', roomId)
+    .eq('player_id', playerId)
+    .single();
+
+  if (error || !player) {
+    return { valid: false, error: 'Player not found in room' };
+  }
+
+  // Verify the secret matches
+  if (player.player_secret !== playerSecret) {
+    console.log('Secret mismatch - potential impersonation attempt');
+    return { valid: false, error: 'Invalid player credentials' };
+  }
+
+  return { valid: true, player };
 };
 
 serve(async (req) => {
@@ -18,6 +40,8 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const playerId = req.headers.get('x-player-id');
+    const playerSecret = req.headers.get('x-player-secret');
+    
     if (!playerId) {
       return new Response(
         JSON.stringify({ error: 'Player ID required' }),
@@ -27,6 +51,33 @@ serve(async (req) => {
 
     const { action, roomId, ...params } = await req.json();
     console.log(`Action: ${action}, Room: ${roomId}, Player: ${playerId}`);
+
+    // Actions that require room membership and secret verification
+    const securedActions = ['start_game', 'new_round', 'update_room', 'delete_room', 'get_my_word'];
+    
+    if (securedActions.includes(action)) {
+      if (!playerSecret) {
+        return new Response(
+          JSON.stringify({ error: 'Player secret required' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (!roomId) {
+        return new Response(
+          JSON.stringify({ error: 'Room ID required' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const verification = await verifyPlayer(supabase, playerId, playerSecret, roomId);
+      if (!verification.valid) {
+        return new Response(
+          JSON.stringify({ error: verification.error }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
 
     // Validate host for sensitive operations
     const validateHost = async (roomId: string, playerId: string) => {
@@ -48,6 +99,56 @@ serve(async (req) => {
     };
 
     switch (action) {
+      case 'register_player': {
+        // Register a new player with a secret - called when joining/creating rooms
+        const { roomId: regRoomId, playerName, isHost } = params;
+        
+        if (!regRoomId || !playerName) {
+          throw new Error('Room ID and player name required');
+        }
+
+        // Generate a secure random secret for this player
+        const secret = crypto.randomUUID();
+
+        // Check if player already exists in this room
+        const { data: existingPlayer } = await supabase
+          .from('room_players')
+          .select('id, player_secret')
+          .eq('room_id', regRoomId)
+          .eq('player_id', playerId)
+          .single();
+
+        if (existingPlayer) {
+          // Return existing secret if already registered
+          return new Response(
+            JSON.stringify({ success: true, playerSecret: existingPlayer.player_secret }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        // Insert new player with secret
+        const { error: insertError } = await supabase
+          .from('room_players')
+          .insert({
+            room_id: regRoomId,
+            player_id: playerId,
+            player_name: playerName.trim(),
+            is_host: isHost || false,
+            player_secret: secret,
+          });
+
+        if (insertError) {
+          console.error('Error registering player:', insertError);
+          throw new Error('Failed to register player');
+        }
+
+        console.log(`Player registered: ${playerId} in room ${regRoomId}`);
+        return new Response(
+          JSON.stringify({ success: true, playerSecret: secret }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
       case 'start_game': {
         await validateHost(roomId, playerId);
 
@@ -63,8 +164,8 @@ serve(async (req) => {
           .select('*')
           .eq('room_id', roomId);
 
-        if (playersError || !players || players.length < 2) {
-          throw new Error('At least 2 players are required');
+        if (playersError || !players || players.length < 3) {
+          throw new Error('At least 3 players are required');
         }
 
         // Select random word
@@ -205,6 +306,28 @@ serve(async (req) => {
             role: player.role,
             word: player.assigned_word // null for impostors
           }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      case 'get_players': {
+        // Return only non-sensitive player data
+        if (!roomId) {
+          throw new Error('Room ID required');
+        }
+
+        const { data: players, error } = await supabase
+          .from('room_players')
+          .select('id, player_id, player_name, is_host, joined_at')
+          .eq('room_id', roomId)
+          .order('joined_at');
+
+        if (error) {
+          throw new Error('Failed to get players');
+        }
+
+        return new Response(
+          JSON.stringify({ players }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
