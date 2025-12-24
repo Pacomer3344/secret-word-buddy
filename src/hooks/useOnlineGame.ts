@@ -8,12 +8,13 @@ export interface OnlineGameState {
   roomId: string | null;
   roomCode: string | null;
   playerId: string;
+  playerSecret: string | null; // Secret for authenticating with Edge Function
   playerName: string;
   isHost: boolean;
   players: Player[];
   words: string[];
   impostorCount: number;
-  currentWord: string | null; // Only set from assigned_word for 'player' role
+  currentWord: string | null;
   myRole: 'player' | 'impostor' | null;
 }
 
@@ -25,18 +26,27 @@ export interface Player {
   player_id: string;
   player_name: string;
   is_host: boolean;
-  role: string | null;
-  assigned_word: string | null;
 }
 
-// Helper for Edge Function calls
-const callGameAction = async (playerId: string, action: string, data: Record<string, unknown>) => {
+// Helper for Edge Function calls with player secret authentication
+const callGameAction = async (
+  playerId: string, 
+  playerSecret: string | null, 
+  action: string, 
+  data: Record<string, unknown>
+) => {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'x-player-id': playerId,
+  };
+  
+  if (playerSecret) {
+    headers['x-player-secret'] = playerSecret;
+  }
+
   const response = await fetch(EDGE_FUNCTION_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-player-id': playerId,
-    },
+    headers,
     body: JSON.stringify({ action, ...data }),
   });
   
@@ -55,6 +65,18 @@ const generatePlayerId = () => {
   return id;
 };
 
+const getStoredPlayerSecret = (roomId: string): string | null => {
+  return localStorage.getItem(`impostor_secret_${roomId}`);
+};
+
+const storePlayerSecret = (roomId: string, secret: string) => {
+  localStorage.setItem(`impostor_secret_${roomId}`, secret);
+};
+
+const clearPlayerSecret = (roomId: string) => {
+  localStorage.removeItem(`impostor_secret_${roomId}`);
+};
+
 const generateRoomCode = () => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let code = '';
@@ -70,6 +92,7 @@ export function useOnlineGame() {
     roomId: null,
     roomCode: null,
     playerId: generatePlayerId(),
+    playerSecret: null,
     playerName: '',
     isHost: false,
     players: [],
@@ -97,20 +120,61 @@ export function useOnlineGame() {
           console.log('Room change:', payload);
           if (payload.eventType === 'UPDATE') {
             const room = payload.new as any;
-            setState(prev => ({
-              ...prev,
-              words: room.words || [],
-              impostorCount: room.impostor_count || 1,
-              currentWord: room.current_word,
-              phase: room.status === 'playing' ? 'reveal' : prev.phase,
-            }));
+            
+            // When game starts, fetch role securely
+            if (room.status === 'playing' && state.playerSecret) {
+              try {
+                const result = await callGameAction(state.playerId, state.playerSecret, 'get_my_word', {
+                  roomId: state.roomId,
+                });
+                setState(prev => ({
+                  ...prev,
+                  words: room.words || [],
+                  impostorCount: room.impostor_count || 1,
+                  phase: 'reveal',
+                  myRole: result.role as 'player' | 'impostor',
+                  currentWord: result.word || null,
+                }));
+              } catch (error) {
+                console.error('Error fetching role:', error);
+              }
+            } else {
+              setState(prev => ({
+                ...prev,
+                words: room.words || [],
+                impostorCount: room.impostor_count || 1,
+              }));
+            }
           } else if (payload.eventType === 'DELETE') {
             // Room was deleted
-            setState(prev => ({ ...prev, phase: 'lobby', roomId: null, roomCode: null }));
+            if (state.roomId) {
+              clearPlayerSecret(state.roomId);
+            }
+            setState(prev => ({ ...prev, phase: 'lobby', roomId: null, roomCode: null, playerSecret: null }));
           }
         }
       )
       .subscribe();
+
+    // Fetch players securely via Edge Function (no sensitive data exposed)
+    const fetchPlayers = async () => {
+      try {
+        const result = await callGameAction(state.playerId, null, 'get_players', {
+          roomId: state.roomId,
+        });
+        
+        if (result.players) {
+          const myPlayer = result.players.find((p: Player) => p.player_id === state.playerId);
+          setState(prev => ({
+            ...prev,
+            players: result.players,
+            isHost: myPlayer?.is_host || false,
+          }));
+        }
+      } catch (error) {
+        console.error('Error fetching players:', error);
+      }
+    };
 
     const playersChannel = supabase
       .channel(`players-${state.roomId}`)
@@ -122,34 +186,21 @@ export function useOnlineGame() {
           table: 'room_players',
           filter: `room_id=eq.${state.roomId}`,
         },
-        async () => {
-          // Refetch all players when any change happens
-          const { data } = await supabase
-            .from('room_players')
-            .select('*')
-            .eq('room_id', state.roomId)
-            .order('joined_at');
-          
-          if (data) {
-            const myPlayer = data.find(p => p.player_id === state.playerId);
-            setState(prev => ({
-              ...prev,
-              players: data,
-              myRole: myPlayer?.role as 'player' | 'impostor' | null,
-              // Get word from assigned_word (secure: only 'player' role has it)
-              currentWord: myPlayer?.assigned_word || null,
-              isHost: myPlayer?.is_host || false,
-            }));
-          }
+        () => {
+          // Refetch players via secure endpoint when any change happens
+          fetchPlayers();
         }
       )
       .subscribe();
+
+    // Initial fetch
+    fetchPlayers();
 
     return () => {
       supabase.removeChannel(roomChannel);
       supabase.removeChannel(playersChannel);
     };
-  }, [state.roomId, state.playerId]);
+  }, [state.roomId, state.playerId, state.playerSecret]);
 
   const setPlayerName = useCallback((name: string) => {
     setState(prev => ({ ...prev, playerName: name }));
@@ -177,37 +228,42 @@ export function useOnlineGame() {
       return { error: 'Error al crear la sala' };
     }
 
-    const { error: playerError } = await supabase
-      .from('room_players')
-      .insert({
-        room_id: room.id,
-        player_id: state.playerId,
-        player_name: state.playerName.trim(),
-        is_host: true,
+    // Register player via Edge Function to get secret
+    try {
+      const result = await callGameAction(state.playerId, null, 'register_player', {
+        roomId: room.id,
+        playerName: state.playerName.trim(),
+        isHost: true,
       });
 
-    if (playerError) {
-      console.error('Error adding player:', playerError);
-      return { error: 'Error al unirse a la sala' };
+      if (result.playerSecret) {
+        storePlayerSecret(room.id, result.playerSecret);
+        
+        setState(prev => ({
+          ...prev,
+          roomId: room.id,
+          roomCode: roomCode,
+          playerSecret: result.playerSecret,
+          isHost: true,
+          phase: 'waiting',
+          players: [{
+            id: '',
+            player_id: state.playerId,
+            player_name: state.playerName.trim(),
+            is_host: true,
+          }],
+        }));
+
+        return { success: true, roomCode };
+      } else {
+        throw new Error('No secret returned');
+      }
+    } catch (error) {
+      console.error('Error registering player:', error);
+      // Clean up the room if registration failed
+      await supabase.from('game_rooms').delete().eq('id', room.id);
+      return { error: 'Error al registrar jugador' };
     }
-
-    setState(prev => ({
-      ...prev,
-      roomId: room.id,
-      roomCode: roomCode,
-      isHost: true,
-      phase: 'waiting',
-      players: [{
-        id: '',
-        player_id: state.playerId,
-        player_name: state.playerName.trim(),
-        is_host: true,
-        role: null,
-        assigned_word: null,
-      }],
-    }));
-
-    return { success: true, roomCode };
   }, [state.playerName, state.playerId]);
 
   const joinRoom = useCallback(async (code: string) => {
@@ -228,101 +284,100 @@ export function useOnlineGame() {
       return { error: 'La partida ya comenzó' };
     }
 
-    // Check if player already in room
-    const { data: existingPlayer } = await supabase
-      .from('room_players')
-      .select('*')
-      .eq('room_id', room.id)
-      .eq('player_id', state.playerId)
-      .single();
-
-    if (existingPlayer) {
-      // Already in room, just update state
-      setState(prev => ({
-        ...prev,
+    // Check if we have a stored secret for this room
+    const storedSecret = getStoredPlayerSecret(room.id);
+    
+    // Try to register (will return existing secret if already registered)
+    try {
+      const result = await callGameAction(state.playerId, null, 'register_player', {
         roomId: room.id,
-        roomCode: room.room_code,
-        isHost: existingPlayer.is_host,
-        phase: 'waiting',
-      }));
-      return { success: true };
-    }
-
-    const { error: playerError } = await supabase
-      .from('room_players')
-      .insert({
-        room_id: room.id,
-        player_id: state.playerId,
-        player_name: state.playerName.trim(),
-        is_host: false,
+        playerName: state.playerName.trim(),
+        isHost: false,
       });
 
-    if (playerError) {
-      console.error('Error joining room:', playerError);
+      if (result.playerSecret) {
+        storePlayerSecret(room.id, result.playerSecret);
+        
+        setState(prev => ({
+          ...prev,
+          roomId: room.id,
+          roomCode: room.room_code,
+          playerSecret: result.playerSecret,
+          isHost: false,
+          phase: 'waiting',
+        }));
+
+        return { success: true };
+      } else if (storedSecret) {
+        // Use stored secret if registration didn't return one
+        setState(prev => ({
+          ...prev,
+          roomId: room.id,
+          roomCode: room.room_code,
+          playerSecret: storedSecret,
+          isHost: false,
+          phase: 'waiting',
+        }));
+        return { success: true };
+      } else {
+        throw new Error('No secret available');
+      }
+    } catch (error) {
+      console.error('Error joining room:', error);
       return { error: 'Error al unirse a la sala' };
     }
-
-    setState(prev => ({
-      ...prev,
-      roomId: room.id,
-      roomCode: room.room_code,
-      isHost: false,
-      phase: 'waiting',
-    }));
-
-    return { success: true };
   }, [state.playerName, state.playerId]);
 
   const addWord = useCallback(async (word: string) => {
-    if (!state.roomId || !state.isHost) return;
+    if (!state.roomId || !state.isHost || !state.playerSecret) return;
     const trimmed = word.trim();
     if (!trimmed || state.words.includes(trimmed)) return;
 
     const newWords = [...state.words, trimmed];
     try {
-      await callGameAction(state.playerId, 'update_room', {
+      await callGameAction(state.playerId, state.playerSecret, 'update_room', {
         roomId: state.roomId,
         words: newWords,
       });
     } catch (error) {
       console.error('Error adding word:', error);
     }
-  }, [state.roomId, state.isHost, state.words, state.playerId]);
+  }, [state.roomId, state.isHost, state.words, state.playerId, state.playerSecret]);
 
   const removeWord = useCallback(async (word: string) => {
-    if (!state.roomId || !state.isHost) return;
+    if (!state.roomId || !state.isHost || !state.playerSecret) return;
 
     const newWords = state.words.filter(w => w !== word);
     try {
-      await callGameAction(state.playerId, 'update_room', {
+      await callGameAction(state.playerId, state.playerSecret, 'update_room', {
         roomId: state.roomId,
         words: newWords,
       });
     } catch (error) {
       console.error('Error removing word:', error);
     }
-  }, [state.roomId, state.isHost, state.words, state.playerId]);
+  }, [state.roomId, state.isHost, state.words, state.playerId, state.playerSecret]);
 
   const setImpostorCount = useCallback(async (count: number) => {
-    if (!state.roomId || !state.isHost) return;
+    if (!state.roomId || !state.isHost || !state.playerSecret) return;
 
     try {
-      await callGameAction(state.playerId, 'update_room', {
+      await callGameAction(state.playerId, state.playerSecret, 'update_room', {
         roomId: state.roomId,
         impostorCount: count,
       });
     } catch (error) {
       console.error('Error setting impostor count:', error);
     }
-  }, [state.roomId, state.isHost, state.playerId]);
+  }, [state.roomId, state.isHost, state.playerId, state.playerSecret]);
 
   const startGame = useCallback(async () => {
-    if (!state.roomId || !state.isHost) return { error: 'No eres el host' };
+    if (!state.roomId || !state.isHost || !state.playerSecret) return { error: 'No eres el host' };
     if (state.words.length === 0) return { error: 'Agrega al menos una palabra' };
     if (state.players.length < 3) return { error: 'Se necesitan al menos 3 jugadores' };
 
     try {
-      await callGameAction(state.playerId, 'start_game', {
+      await callGameAction(state.playerId, state.playerSecret, 'start_game', {
         roomId: state.roomId,
         words: state.words,
         impostorCount: state.impostorCount,
@@ -332,32 +387,32 @@ export function useOnlineGame() {
       console.error('Error starting game:', error);
       return { error: error instanceof Error ? error.message : 'Error al iniciar' };
     }
-  }, [state.roomId, state.isHost, state.words, state.players, state.impostorCount, state.playerId]);
+  }, [state.roomId, state.isHost, state.words, state.players, state.impostorCount, state.playerId, state.playerSecret]);
 
   const confirmRole = useCallback(() => {
     setState(prev => ({ ...prev, phase: 'playing' }));
   }, []);
 
   const newRound = useCallback(async () => {
-    if (!state.roomId || !state.isHost) return;
+    if (!state.roomId || !state.isHost || !state.playerSecret) return;
 
     try {
-      await callGameAction(state.playerId, 'new_round', {
+      await callGameAction(state.playerId, state.playerSecret, 'new_round', {
         roomId: state.roomId,
       });
       setState(prev => ({ ...prev, phase: 'waiting', myRole: null, currentWord: null }));
     } catch (error) {
       console.error('Error starting new round:', error);
     }
-  }, [state.roomId, state.isHost, state.playerId]);
+  }, [state.roomId, state.isHost, state.playerId, state.playerSecret]);
 
   const leaveRoom = useCallback(async () => {
     if (!state.roomId) return;
 
     // If host leaves, use edge function to delete room properly
-    if (state.isHost) {
+    if (state.isHost && state.playerSecret) {
       try {
-        await callGameAction(state.playerId, 'delete_room', {
+        await callGameAction(state.playerId, state.playerSecret, 'delete_room', {
           roomId: state.roomId,
         });
       } catch (error) {
@@ -372,17 +427,21 @@ export function useOnlineGame() {
         .eq('player_id', state.playerId);
     }
 
+    // Clear stored secret
+    clearPlayerSecret(state.roomId);
+
     setState(prev => ({
       ...prev,
       phase: 'lobby',
       roomId: null,
       roomCode: null,
+      playerSecret: null,
       isHost: false,
       players: [],
       myRole: null,
       currentWord: null,
     }));
-  }, [state.roomId, state.playerId, state.isHost]);
+  }, [state.roomId, state.playerId, state.isHost, state.playerSecret]);
 
   const canStartGame = state.words.length > 0 && 
     state.players.length >= 3 && 
