@@ -1,9 +1,48 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-player-id, x-player-secret',
+};
+
+// Input validation schemas
+const uuidSchema = z.string().uuid({ message: "Invalid UUID format" });
+const playerNameSchema = z.string().trim().min(1, "Name required").max(50, "Name too long (max 50 chars)");
+const wordSchema = z.string().trim().min(1, "Word cannot be empty").max(100, "Word too long (max 100 chars)");
+const wordsArraySchema = z.array(wordSchema).min(1, "At least one word required").max(50, "Too many words (max 50)");
+const impostorCountSchema = z.number().int().min(1, "At least 1 impostor").max(10, "Max 10 impostors");
+
+const registerPlayerSchema = z.object({
+  roomId: uuidSchema,
+  playerName: playerNameSchema,
+  isHost: z.boolean().optional().default(false),
+});
+
+const startGameSchema = z.object({
+  roomId: uuidSchema,
+  words: wordsArraySchema,
+  impostorCount: impostorCountSchema,
+});
+
+const updateRoomSchema = z.object({
+  roomId: uuidSchema,
+  words: wordsArraySchema.optional(),
+  impostorCount: impostorCountSchema.optional(),
+});
+
+const roomActionSchema = z.object({
+  roomId: uuidSchema,
+});
+
+// Sanitize string to prevent XSS - removes HTML tags and dangerous characters
+const sanitizeString = (str: string): string => {
+  return str
+    .replace(/[<>]/g, '') // Remove < and > to prevent HTML injection
+    .replace(/javascript:/gi, '') // Remove javascript: protocol
+    .replace(/on\w+=/gi, '') // Remove event handlers like onclick=
+    .trim();
 };
 
 // Verify player identity using the stored secret
@@ -42,6 +81,7 @@ serve(async (req) => {
     const playerId = req.headers.get('x-player-id');
     const playerSecret = req.headers.get('x-player-secret');
     
+    // Validate player ID format
     if (!playerId) {
       return new Response(
         JSON.stringify({ error: 'Player ID required' }),
@@ -49,11 +89,21 @@ serve(async (req) => {
       );
     }
 
-    const { action, roomId, ...params } = await req.json();
+    // Validate playerId is a valid UUID
+    const playerIdResult = uuidSchema.safeParse(playerId);
+    if (!playerIdResult.success) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid player ID format' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const body = await req.json();
+    const { action, roomId, ...params } = body;
     console.log(`Action: ${action}, Room: ${roomId}, Player: ${playerId}`);
 
     // Actions that require room membership and secret verification
-    const securedActions = ['start_game', 'new_round', 'update_room', 'delete_room', 'get_my_word'];
+    const securedActions = ['start_game', 'new_round', 'update_room', 'delete_room', 'get_my_word', 'leave_room'];
     
     if (securedActions.includes(action)) {
       if (!playerSecret) {
@@ -63,9 +113,11 @@ serve(async (req) => {
         );
       }
 
-      if (!roomId) {
+      // Validate roomId for secured actions
+      const roomIdResult = uuidSchema.safeParse(roomId);
+      if (!roomIdResult.success) {
         return new Response(
-          JSON.stringify({ error: 'Room ID required' }),
+          JSON.stringify({ error: 'Invalid room ID format' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -100,12 +152,23 @@ serve(async (req) => {
 
     switch (action) {
       case 'register_player': {
-        // Register a new player with a secret - called when joining/creating rooms
-        const { roomId: regRoomId, playerName, isHost } = params;
-        
-        if (!regRoomId || !playerName) {
-          throw new Error('Room ID and player name required');
+        // Validate input
+        const parseResult = registerPlayerSchema.safeParse({
+          roomId: params.roomId,
+          playerName: params.playerName,
+          isHost: params.isHost,
+        });
+
+        if (!parseResult.success) {
+          const errorMessage = parseResult.error.errors.map(e => e.message).join(', ');
+          return new Response(
+            JSON.stringify({ error: errorMessage }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
         }
+
+        const { roomId: regRoomId, playerName, isHost } = parseResult.data;
+        const sanitizedName = sanitizeString(playerName);
 
         // Generate a secure random secret for this player
         const secret = crypto.randomUUID();
@@ -132,8 +195,8 @@ serve(async (req) => {
           .insert({
             room_id: regRoomId,
             player_id: playerId,
-            player_name: playerName.trim(),
-            is_host: isHost || false,
+            player_name: sanitizedName,
+            is_host: isHost,
             player_secret: secret,
           });
 
@@ -152,11 +215,25 @@ serve(async (req) => {
       case 'start_game': {
         await validateHost(roomId, playerId);
 
-        const { words, impostorCount } = params;
-        
-        if (!words || words.length === 0) {
-          throw new Error('At least one word is required');
+        // Validate input
+        const parseResult = startGameSchema.safeParse({
+          roomId,
+          words: params.words,
+          impostorCount: params.impostorCount,
+        });
+
+        if (!parseResult.success) {
+          const errorMessage = parseResult.error.errors.map(e => e.message).join(', ');
+          return new Response(
+            JSON.stringify({ error: errorMessage }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
         }
+
+        const { words, impostorCount } = parseResult.data;
+        
+        // Sanitize all words
+        const sanitizedWords = words.map(sanitizeString);
 
         // Get all players in the room
         const { data: players, error: playersError } = await supabase
@@ -169,8 +246,8 @@ serve(async (req) => {
         }
 
         // Select random word
-        const randomWord = words[Math.floor(Math.random() * words.length)];
-        console.log(`Selected word: ${randomWord}`);
+        const randomWord = sanitizedWords[Math.floor(Math.random() * sanitizedWords.length)];
+        console.log(`Selected word for room ${roomId}`);
 
         // Assign roles
         const playerCount = players.length;
@@ -206,11 +283,12 @@ serve(async (req) => {
             .eq('id', players[i].id);
         }
 
-        // Update room status (don't expose current_word to clients anymore)
+        // Update room status and store sanitized words
         await supabase
           .from('game_rooms')
           .update({ 
-            current_word: randomWord, // Keep for reference but clients won't see
+            current_word: randomWord,
+            words: sanitizedWords,
             status: 'playing',
           })
           .eq('id', roomId);
@@ -223,6 +301,15 @@ serve(async (req) => {
       }
 
       case 'new_round': {
+        // Validate roomId
+        const parseResult = roomActionSchema.safeParse({ roomId });
+        if (!parseResult.success) {
+          return new Response(
+            JSON.stringify({ error: 'Invalid room ID' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
         await validateHost(roomId, playerId);
 
         // Reset all players' roles and assigned_word
@@ -250,11 +337,30 @@ serve(async (req) => {
       case 'update_room': {
         await validateHost(roomId, playerId);
         
-        const { words, impostorCount } = params;
+        // Validate input
+        const parseResult = updateRoomSchema.safeParse({
+          roomId,
+          words: params.words,
+          impostorCount: params.impostorCount,
+        });
+
+        if (!parseResult.success) {
+          const errorMessage = parseResult.error.errors.map(e => e.message).join(', ');
+          return new Response(
+            JSON.stringify({ error: errorMessage }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        const { words, impostorCount } = parseResult.data;
         const updateData: Record<string, any> = {};
         
-        if (words !== undefined) updateData.words = words;
-        if (impostorCount !== undefined) updateData.impostor_count = impostorCount;
+        if (words !== undefined) {
+          updateData.words = words.map(sanitizeString);
+        }
+        if (impostorCount !== undefined) {
+          updateData.impostor_count = impostorCount;
+        }
 
         await supabase
           .from('game_rooms')
@@ -288,6 +394,26 @@ serve(async (req) => {
         );
       }
 
+      case 'leave_room': {
+        // Allow players to leave (delete their own record)
+        const { error } = await supabase
+          .from('room_players')
+          .delete()
+          .eq('room_id', roomId)
+          .eq('player_id', playerId);
+
+        if (error) {
+          console.error('Error leaving room:', error);
+          throw new Error('Failed to leave room');
+        }
+
+        console.log(`Player ${playerId} left room ${roomId}`);
+        return new Response(
+          JSON.stringify({ success: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
       case 'get_my_word': {
         // Get player's assigned word (only returns if they have role 'player')
         const { data: player, error } = await supabase
@@ -311,11 +437,16 @@ serve(async (req) => {
       }
 
       case 'get_players': {
-        // Return only non-sensitive player data
-        if (!roomId) {
-          throw new Error('Room ID required');
+        // Validate roomId
+        const roomIdResult = uuidSchema.safeParse(roomId);
+        if (!roomIdResult.success) {
+          return new Response(
+            JSON.stringify({ error: 'Invalid room ID format' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
         }
 
+        // Return only non-sensitive player data
         const { data: players, error } = await supabase
           .from('room_players')
           .select('id, player_id, player_name, is_host, joined_at')

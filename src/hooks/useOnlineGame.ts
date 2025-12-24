@@ -409,22 +409,23 @@ export function useOnlineGame() {
   const leaveRoom = useCallback(async () => {
     if (!state.roomId) return;
 
-    // If host leaves, use edge function to delete room properly
-    if (state.isHost && state.playerSecret) {
+    // All room mutations must go through Edge Function (RLS blocks direct access)
+    if (state.playerSecret) {
       try {
-        await callGameAction(state.playerId, state.playerSecret, 'delete_room', {
-          roomId: state.roomId,
-        });
+        if (state.isHost) {
+          // Host deletes the entire room
+          await callGameAction(state.playerId, state.playerSecret, 'delete_room', {
+            roomId: state.roomId,
+          });
+        } else {
+          // Non-host leaves via Edge Function
+          await callGameAction(state.playerId, state.playerSecret, 'leave_room', {
+            roomId: state.roomId,
+          });
+        }
       } catch (error) {
-        console.error('Error deleting room:', error);
+        console.error('Error leaving room:', error);
       }
-    } else {
-      // Non-host can leave directly
-      await supabase
-        .from('room_players')
-        .delete()
-        .eq('room_id', state.roomId)
-        .eq('player_id', state.playerId);
     }
 
     // Clear stored secret
