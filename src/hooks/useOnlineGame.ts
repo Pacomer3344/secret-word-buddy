@@ -18,8 +18,8 @@ export interface OnlineGameState {
   myRole: 'player' | 'impostor' | null;
 }
 
-// Edge function URL
-const EDGE_FUNCTION_URL = 'https://tychxbzcoqjhyrkgphxw.supabase.co/functions/v1/game-actions';
+// Edge function URL from environment variable
+const EDGE_FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/game-actions`;
 
 export interface Player {
   id: string;
@@ -214,7 +214,7 @@ export function useOnlineGame() {
         {
           event: '*',
           schema: 'public',
-          table: 'room_players',
+          table: 'room_players_safe', // Use safe view instead of sensitive table
           filter: `room_id=eq.${state.roomId}`,
         },
         () => {
