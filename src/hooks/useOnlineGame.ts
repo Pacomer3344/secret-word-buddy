@@ -65,12 +65,38 @@ const generatePlayerId = () => {
   return id;
 };
 
+// Secret storage with expiration (2 hours TTL)
+const SECRET_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+interface StoredSecret {
+  secret: string;
+  expiresAt: number;
+}
+
 const getStoredPlayerSecret = (roomId: string): string | null => {
-  return localStorage.getItem(`impostor_secret_${roomId}`);
+  const stored = localStorage.getItem(`impostor_secret_${roomId}`);
+  if (!stored) return null;
+  
+  try {
+    const data: StoredSecret = JSON.parse(stored);
+    // Check if expired
+    if (Date.now() > data.expiresAt) {
+      localStorage.removeItem(`impostor_secret_${roomId}`);
+      return null;
+    }
+    return data.secret;
+  } catch {
+    // Legacy format (plain string) - migrate to new format
+    return stored;
+  }
 };
 
 const storePlayerSecret = (roomId: string, secret: string) => {
-  localStorage.setItem(`impostor_secret_${roomId}`, secret);
+  const data: StoredSecret = {
+    secret,
+    expiresAt: Date.now() + SECRET_TTL_MS,
+  };
+  localStorage.setItem(`impostor_secret_${roomId}`, JSON.stringify(data));
 };
 
 const clearPlayerSecret = (roomId: string) => {
