@@ -249,9 +249,9 @@ serve(async (req) => {
 
     switch (action) {
       case 'register_player': {
-        // Validate input
+        // Validate input - roomId comes from body directly, not params
         const parseResult = registerPlayerSchema.safeParse({
-          roomId: params.roomId,
+          roomId: roomId,
           playerName: params.playerName,
           isHost: params.isHost,
         });
