@@ -57,50 +57,56 @@ const callGameAction = async (
   return result;
 };
 
+// Use sessionStorage for player ID (persists during session, clears on tab close)
 const generatePlayerId = () => {
-  const stored = localStorage.getItem('impostor_player_id');
+  // Check sessionStorage first for current session
+  let stored = sessionStorage.getItem('impostor_player_id');
   if (stored) return stored;
+  
+  // Migrate from localStorage if exists (one-time migration)
+  const legacyStored = localStorage.getItem('impostor_player_id');
+  if (legacyStored) {
+    sessionStorage.setItem('impostor_player_id', legacyStored);
+    localStorage.removeItem('impostor_player_id'); // Clean up old storage
+    return legacyStored;
+  }
+  
   const id = crypto.randomUUID();
-  localStorage.setItem('impostor_player_id', id);
+  sessionStorage.setItem('impostor_player_id', id);
   return id;
 };
 
-// Secret storage with expiration (2 hours TTL)
-const SECRET_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
-
-interface StoredSecret {
-  secret: string;
-  expiresAt: number;
-}
-
+// Use sessionStorage for secrets (clears on tab/browser close - more secure)
 const getStoredPlayerSecret = (roomId: string): string | null => {
-  const stored = localStorage.getItem(`impostor_secret_${roomId}`);
-  if (!stored) return null;
+  // Check sessionStorage first
+  const stored = sessionStorage.getItem(`impostor_secret_${roomId}`);
+  if (stored) return stored;
   
-  try {
-    const data: StoredSecret = JSON.parse(stored);
-    // Check if expired
-    if (Date.now() > data.expiresAt) {
-      localStorage.removeItem(`impostor_secret_${roomId}`);
-      return null;
+  // Migrate from localStorage if exists (one-time migration)
+  const legacyStored = localStorage.getItem(`impostor_secret_${roomId}`);
+  if (legacyStored) {
+    try {
+      const data = JSON.parse(legacyStored);
+      if (data.secret && Date.now() <= data.expiresAt) {
+        sessionStorage.setItem(`impostor_secret_${roomId}`, data.secret);
+      }
+    } catch {
+      // Plain string format
+      sessionStorage.setItem(`impostor_secret_${roomId}`, legacyStored);
     }
-    return data.secret;
-  } catch {
-    // Legacy format (plain string) - migrate to new format
-    return stored;
+    localStorage.removeItem(`impostor_secret_${roomId}`); // Clean up old storage
+    return sessionStorage.getItem(`impostor_secret_${roomId}`);
   }
+  
+  return null;
 };
 
 const storePlayerSecret = (roomId: string, secret: string) => {
-  const data: StoredSecret = {
-    secret,
-    expiresAt: Date.now() + SECRET_TTL_MS,
-  };
-  localStorage.setItem(`impostor_secret_${roomId}`, JSON.stringify(data));
+  sessionStorage.setItem(`impostor_secret_${roomId}`, secret);
 };
 
 const clearPlayerSecret = (roomId: string) => {
-  localStorage.removeItem(`impostor_secret_${roomId}`);
+  sessionStorage.removeItem(`impostor_secret_${roomId}`);
 };
 
 const generateRoomCode = () => {
@@ -143,7 +149,6 @@ export function useOnlineGame() {
           filter: `id=eq.${state.roomId}`,
         },
         async (payload) => {
-          console.log('Room change:', payload);
           if (payload.eventType === 'UPDATE') {
             const room = payload.new as any;
             
@@ -161,8 +166,8 @@ export function useOnlineGame() {
                   myRole: result.role as 'player' | 'impostor',
                   currentWord: result.word || null,
                 }));
-              } catch (error) {
-                console.error('Error fetching role:', error);
+              } catch {
+                // Failed to fetch role - handled silently
               }
             } else {
               setState(prev => ({
@@ -197,8 +202,8 @@ export function useOnlineGame() {
             isHost: myPlayer?.is_host || false,
           }));
         }
-      } catch (error) {
-        console.error('Error fetching players:', error);
+      } catch {
+        // Failed to fetch players - handled silently
       }
     };
 
@@ -250,7 +255,6 @@ export function useOnlineGame() {
       .single();
 
     if (roomError) {
-      console.error('Error creating room:', roomError);
       return { error: 'Error al crear la sala' };
     }
 
@@ -284,8 +288,7 @@ export function useOnlineGame() {
       } else {
         throw new Error('No secret returned');
       }
-    } catch (error) {
-      console.error('Error registering player:', error);
+    } catch {
       // Clean up the room if registration failed
       await supabase.from('game_rooms').delete().eq('id', room.id);
       return { error: 'Error al registrar jugador' };
@@ -348,8 +351,7 @@ export function useOnlineGame() {
       } else {
         throw new Error('No secret available');
       }
-    } catch (error) {
-      console.error('Error joining room:', error);
+    } catch {
       return { error: 'Error al unirse a la sala' };
     }
   }, [state.playerName, state.playerId]);
@@ -365,8 +367,8 @@ export function useOnlineGame() {
         roomId: state.roomId,
         words: newWords,
       });
-    } catch (error) {
-      console.error('Error adding word:', error);
+    } catch {
+      // Error adding word - handled silently
     }
   }, [state.roomId, state.isHost, state.words, state.playerId, state.playerSecret]);
 
@@ -379,8 +381,8 @@ export function useOnlineGame() {
         roomId: state.roomId,
         words: newWords,
       });
-    } catch (error) {
-      console.error('Error removing word:', error);
+    } catch {
+      // Error removing word - handled silently
     }
   }, [state.roomId, state.isHost, state.words, state.playerId, state.playerSecret]);
 
@@ -392,8 +394,8 @@ export function useOnlineGame() {
         roomId: state.roomId,
         impostorCount: count,
       });
-    } catch (error) {
-      console.error('Error setting impostor count:', error);
+    } catch {
+      // Error setting impostor count - handled silently
     }
   }, [state.roomId, state.isHost, state.playerId, state.playerSecret]);
 
@@ -409,9 +411,8 @@ export function useOnlineGame() {
         impostorCount: state.impostorCount,
       });
       return { success: true };
-    } catch (error) {
-      console.error('Error starting game:', error);
-      return { error: error instanceof Error ? error.message : 'Error al iniciar' };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : 'Error al iniciar' };
     }
   }, [state.roomId, state.isHost, state.words, state.players, state.impostorCount, state.playerId, state.playerSecret]);
 
@@ -427,8 +428,8 @@ export function useOnlineGame() {
         roomId: state.roomId,
       });
       setState(prev => ({ ...prev, phase: 'waiting', myRole: null, currentWord: null }));
-    } catch (error) {
-      console.error('Error starting new round:', error);
+    } catch {
+      // Error starting new round - handled silently
     }
   }, [state.roomId, state.isHost, state.playerId, state.playerSecret]);
 
@@ -449,9 +450,9 @@ export function useOnlineGame() {
             roomId: state.roomId,
           });
         }
-      } catch (error) {
-        console.error('Error leaving room:', error);
-      }
+        } catch {
+          // Error leaving room - handled silently
+        }
     }
 
     // Clear stored secret

@@ -52,13 +52,76 @@ const roomActionSchema = z.object({
   roomId: uuidSchema,
 });
 
-// Sanitize string to prevent XSS - removes HTML tags and dangerous characters
-const sanitizeString = (str: string): string => {
+// Allowlist-based sanitization - only permit safe characters
+// For player names: alphanumeric, spaces, common accents, hyphens
+// For words: alphanumeric, spaces, common punctuation, accents
+const sanitizePlayerName = (str: string): string => {
+  // Normalize unicode, strip control chars, keep only safe characters
   return str
-    .replace(/[<>]/g, '') // Remove < and > to prevent HTML injection
-    .replace(/javascript:/gi, '') // Remove javascript: protocol
-    .replace(/on\w+=/gi, '') // Remove event handlers like onclick=
-    .trim();
+    .normalize('NFKC') // Normalize unicode to prevent bypasses
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
+    .replace(/[^\p{L}\p{N}\s\-_.]/gu, '') // Keep letters, numbers, spaces, hyphens, underscores, dots
+    .trim()
+    .slice(0, 50); // Enforce max length
+};
+
+const sanitizeWord = (str: string): string => {
+  // Normalize unicode, strip control chars, keep alphanumeric + common punctuation
+  return str
+    .normalize('NFKC') // Normalize unicode to prevent bypasses
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
+    .replace(/[^\p{L}\p{N}\s\-_.,!?'"()]/gu, '') // Keep letters, numbers, spaces, common punctuation
+    .trim()
+    .slice(0, 100); // Enforce max length
+};
+
+// Simple in-memory rate limiter (per Deno isolate)
+// Note: In production with multiple isolates, use Redis or database-backed rate limiting
+const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
+
+interface RateLimitConfig {
+  maxRequests: number;
+  windowMs: number;
+}
+
+const RATE_LIMITS: Record<string, RateLimitConfig> = {
+  register_player: { maxRequests: 10, windowMs: 60000 }, // 10 per minute
+  start_game: { maxRequests: 5, windowMs: 60000 }, // 5 per minute
+  update_room: { maxRequests: 30, windowMs: 60000 }, // 30 per minute
+  delete_room: { maxRequests: 5, windowMs: 60000 }, // 5 per minute
+  leave_room: { maxRequests: 10, windowMs: 60000 }, // 10 per minute
+  new_round: { maxRequests: 10, windowMs: 60000 }, // 10 per minute
+  get_my_word: { maxRequests: 30, windowMs: 60000 }, // 30 per minute
+  get_players: { maxRequests: 60, windowMs: 60000 }, // 60 per minute
+};
+
+const checkRateLimit = (key: string, action: string): { allowed: boolean; retryAfter?: number } => {
+  const config = RATE_LIMITS[action];
+  if (!config) return { allowed: true };
+
+  const now = Date.now();
+  const rateLimitKey = `${action}:${key}`;
+  const entry = rateLimitStore.get(rateLimitKey);
+
+  // Clean up expired entries periodically
+  if (rateLimitStore.size > 10000) {
+    for (const [k, v] of rateLimitStore.entries()) {
+      if (now > v.resetAt) rateLimitStore.delete(k);
+    }
+  }
+
+  if (!entry || now > entry.resetAt) {
+    // New window
+    rateLimitStore.set(rateLimitKey, { count: 1, resetAt: now + config.windowMs });
+    return { allowed: true };
+  }
+
+  if (entry.count >= config.maxRequests) {
+    return { allowed: false, retryAfter: Math.ceil((entry.resetAt - now) / 1000) };
+  }
+
+  entry.count++;
+  return { allowed: true };
 };
 
 // Verify player identity using the stored secret
@@ -119,7 +182,22 @@ serve(async (req) => {
 
     const body = await req.json();
     const { action, roomId, ...params } = body;
-    console.log(`Action: ${action}, Room: ${roomId}, Player: ${playerId}`);
+
+    // Rate limiting check - use playerId as the rate limit key
+    const rateLimitResult = checkRateLimit(playerId, action);
+    if (!rateLimitResult.allowed) {
+      return new Response(
+        JSON.stringify({ error: 'Too many requests. Please slow down.' }),
+        { 
+          status: 429, 
+          headers: { 
+            ...corsHeaders, 
+            'Content-Type': 'application/json',
+            'Retry-After': String(rateLimitResult.retryAfter || 60),
+          } 
+        }
+      );
+    }
 
     // Actions that require room membership and secret verification
     const securedActions = ['start_game', 'new_round', 'update_room', 'delete_room', 'get_my_word', 'leave_room'];
@@ -187,7 +265,7 @@ serve(async (req) => {
         }
 
         const { roomId: regRoomId, playerName, isHost } = parseResult.data;
-        const sanitizedName = sanitizeString(playerName);
+        const sanitizedName = sanitizePlayerName(playerName);
 
         // Generate a secure random secret for this player
         const secret = crypto.randomUUID();
@@ -251,8 +329,8 @@ serve(async (req) => {
 
         const { words, impostorCount } = parseResult.data;
         
-        // Sanitize all words
-        const sanitizedWords = words.map(sanitizeString);
+        // Sanitize all words using allowlist approach
+        const sanitizedWords = words.map(sanitizeWord);
 
         // Get all players in the room
         const { data: players, error: playersError } = await supabase
@@ -375,7 +453,7 @@ serve(async (req) => {
         const updateData: Record<string, any> = {};
         
         if (words !== undefined) {
-          updateData.words = words.map(sanitizeString);
+          updateData.words = words.map(sanitizeWord);
         }
         if (impostorCount !== undefined) {
           updateData.impostor_count = impostorCount;
