@@ -55,6 +55,7 @@ export type Database = {
           joined_at: string
           player_id: string
           player_name: string
+          player_secret: string | null
           role: string | null
           room_id: string
         }
@@ -65,6 +66,7 @@ export type Database = {
           joined_at?: string
           player_id: string
           player_name: string
+          player_secret?: string | null
           role?: string | null
           room_id: string
         }
@@ -75,6 +77,7 @@ export type Database = {
           joined_at?: string
           player_id?: string
           player_name?: string
+          player_secret?: string | null
           role?: string | null
           room_id?: string
         }
@@ -90,7 +93,41 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      room_players_public: {
+        Row: {
+          id: string | null
+          is_host: boolean | null
+          joined_at: string | null
+          player_id: string | null
+          player_name: string | null
+          room_id: string | null
+        }
+        Insert: {
+          id?: string | null
+          is_host?: boolean | null
+          joined_at?: string | null
+          player_id?: string | null
+          player_name?: string | null
+          room_id?: string | null
+        }
+        Update: {
+          id?: string | null
+          is_host?: boolean | null
+          joined_at?: string | null
+          player_id?: string | null
+          player_name?: string | null
+          room_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_players_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "game_rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       [_ in never]: never
