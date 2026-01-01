@@ -13,8 +13,10 @@ import {
   Check, 
   Crown,
   Play,
-  HelpCircle
+  HelpCircle,
+  FileSpreadsheet
 } from 'lucide-react';
+import { useExcelImport } from '@/hooks/useExcelImport';
 import {
   Dialog,
   DialogContent,
@@ -67,6 +69,10 @@ export default function WaitingRoom({
   const [copied, setCopied] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const { toast } = useToast();
+  
+  const { fileInputRef, handleFileChange, triggerFileSelect } = useExcelImport((importedWords) => {
+    importedWords.forEach(word => onAddWord(word));
+  });
 
   const maxImpostors = Math.max(1, Math.floor(players.length / 2));
 
@@ -213,6 +219,16 @@ export default function WaitingRoom({
                   <Button onClick={handleAddWord} disabled={!newWord.trim()}>
                     <Plus className="w-4 h-4" />
                   </Button>
+                  <Button onClick={triggerFileSelect} variant="outline" title="Importar desde Excel">
+                    <FileSpreadsheet className="w-4 h-4" />
+                  </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
                 </div>
                 
                 {words.length > 0 ? (

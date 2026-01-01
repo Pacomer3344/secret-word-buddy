@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Plus, X, Users, UserX, Play, Home, HelpCircle } from 'lucide-react';
+import { Plus, X, Users, UserX, Play, Home, HelpCircle, FileSpreadsheet } from 'lucide-react';
+import { useExcelImport } from '@/hooks/useExcelImport';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -43,6 +44,10 @@ export function GameSetup({
   canStart,
 }: GameSetupProps) {
   const [newWord, setNewWord] = useState('');
+  
+  const { fileInputRef, handleFileChange, triggerFileSelect } = useExcelImport((importedWords) => {
+    importedWords.forEach(word => onAddWord(word));
+  });
 
   const handleAddWord = () => {
     if (newWord.trim()) {
@@ -152,6 +157,16 @@ export function GameSetup({
             <Button onClick={handleAddWord} size="icon" className="shrink-0">
               <Plus className="h-5 w-5" />
             </Button>
+            <Button onClick={triggerFileSelect} size="icon" variant="outline" className="shrink-0" title="Importar desde Excel">
+              <FileSpreadsheet className="h-5 w-5" />
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={handleFileChange}
+              className="hidden"
+            />
           </div>
 
           {/* Word List */}
