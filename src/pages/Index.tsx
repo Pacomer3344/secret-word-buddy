@@ -1,3 +1,4 @@
+import { forwardRef } from 'react';
 import { HomeScreen } from '@/components/game/HomeScreen';
 import { GameSetup } from '@/components/game/GameSetup';
 import { RoleReveal } from '@/components/game/RoleReveal';
@@ -5,7 +6,7 @@ import { GamePlaying } from '@/components/game/GamePlaying';
 import OnlineGame from '@/components/game/OnlineGame';
 import { useImpostorGame } from '@/hooks/useImpostorGame';
 
-const Index = () => {
+const Index = forwardRef<HTMLDivElement>((_, ref) => {
   const {
     state,
     addWord,
@@ -26,7 +27,7 @@ const Index = () => {
   }
 
   return (
-    <>
+    <div ref={ref}>
       {state.phase === 'home' && (
         <HomeScreen onSelectMode={selectMode} />
       )}
@@ -64,8 +65,10 @@ const Index = () => {
           onReset={resetGame}
         />
       )}
-    </>
+    </div>
   );
-};
+});
+
+Index.displayName = 'Index';
 
 export default Index;
