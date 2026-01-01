@@ -313,6 +313,9 @@ export function useOnlineGame() {
       return { error: 'La partida ya comenzó' };
     }
 
+    // Check if this player is the host (for reconnection scenarios)
+    const isPlayerHost = room.host_id === state.playerId;
+
     // Check if we have a stored secret for this room
     const storedSecret = getStoredPlayerSecret(room.id);
     
@@ -321,19 +324,22 @@ export function useOnlineGame() {
       const result = await callGameAction(state.playerId, null, 'register_player', {
         roomId: room.id,
         playerName: state.playerName.trim(),
-        isHost: false,
+        isHost: isPlayerHost, // Preserve host status on reconnection
       });
 
       if (result.playerSecret) {
         storePlayerSecret(room.id, result.playerSecret);
         
+        // Restore room state including words and impostor count from DB
         setState(prev => ({
           ...prev,
           roomId: room.id,
           roomCode: room.room_code,
           playerSecret: result.playerSecret,
-          isHost: false,
+          isHost: isPlayerHost,
           phase: 'waiting',
+          words: room.words || [], // Restore words from room data
+          impostorCount: room.impostor_count || 1, // Restore impostor count
         }));
 
         return { success: true };
@@ -344,8 +350,10 @@ export function useOnlineGame() {
           roomId: room.id,
           roomCode: room.room_code,
           playerSecret: storedSecret,
-          isHost: false,
+          isHost: isPlayerHost,
           phase: 'waiting',
+          words: room.words || [], // Restore words from room data
+          impostorCount: room.impostor_count || 1, // Restore impostor count
         }));
         return { success: true };
       } else {
