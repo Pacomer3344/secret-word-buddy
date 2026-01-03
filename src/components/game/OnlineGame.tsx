@@ -15,6 +15,7 @@ export default function OnlineGame({ onGoHome }: OnlineGameProps) {
     createRoom,
     joinRoom,
     addWord,
+    addWords,
     removeWord,
     setImpostorCount,
     startGame,
@@ -60,6 +61,7 @@ export default function OnlineGame({ onGoHome }: OnlineGameProps) {
         isHost={state.isHost}
         canStart={canStartGame}
         onAddWord={addWord}
+        onAddWords={addWords}
         onRemoveWord={removeWord}
         onSetImpostorCount={setImpostorCount}
         onStartGame={startGame}

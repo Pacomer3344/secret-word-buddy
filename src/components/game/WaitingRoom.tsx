@@ -54,6 +54,7 @@ interface WaitingRoomProps {
   isHost: boolean;
   canStart: boolean;
   onAddWord: (word: string) => void;
+  onAddWords: (words: string[]) => void;
   onRemoveWord: (word: string) => void;
   onSetImpostorCount: (count: number) => void;
   onStartGame: () => Promise<{ error?: string; success?: boolean }>;
@@ -69,6 +70,7 @@ export default function WaitingRoom({
   isHost,
   canStart,
   onAddWord,
+  onAddWords,
   onRemoveWord,
   onSetImpostorCount,
   onStartGame,
@@ -82,11 +84,11 @@ export default function WaitingRoom({
   const { toast } = useToast();
   
   const { fileInputRef, handleFileChange, triggerFileSelect } = useExcelImport((importedWords) => {
-    importedWords.forEach(word => onAddWord(word));
+    onAddWords(importedWords);
   });
   
   const { categories, loading: loadingCategories, selectCategory } = useWordCategories((categoryWords) => {
-    categoryWords.forEach(word => onAddWord(word));
+    onAddWords(categoryWords);
     setCategoryOpen(false);
   });
 
