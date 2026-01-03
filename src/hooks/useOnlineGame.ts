@@ -207,6 +207,7 @@ export function useOnlineGame() {
       }
     };
 
+    // Subscribe to the actual room_players table for realtime updates
     const playersChannel = supabase
       .channel(`players-${state.roomId}`)
       .on(
@@ -214,11 +215,12 @@ export function useOnlineGame() {
         {
           event: '*',
           schema: 'public',
-          table: 'room_players_safe', // Use safe view instead of sensitive table
+          table: 'room_players',
           filter: `room_id=eq.${state.roomId}`,
         },
         () => {
           // Refetch players via secure endpoint when any change happens
+          console.log('Player change detected, refetching...');
           fetchPlayers();
         }
       )
@@ -227,11 +229,37 @@ export function useOnlineGame() {
     // Initial fetch
     fetchPlayers();
 
+    // Store fetchPlayers for manual refresh
+    fetchPlayersRef.current = fetchPlayers;
+
     return () => {
       supabase.removeChannel(roomChannel);
       supabase.removeChannel(playersChannel);
     };
   }, [state.roomId, state.playerId, state.playerSecret]);
+
+  // Ref for manual refresh
+  const fetchPlayersRef = { current: async () => {} };
+
+  const refreshPlayers = useCallback(async () => {
+    if (!state.roomId) return;
+    try {
+      const result = await callGameAction(state.playerId, null, 'get_players', {
+        roomId: state.roomId,
+      });
+      
+      if (result.players) {
+        const myPlayer = result.players.find((p: Player) => p.player_id === state.playerId);
+        setState(prev => ({
+          ...prev,
+          players: result.players,
+          isHost: myPlayer?.is_host || false,
+        }));
+      }
+    } catch {
+      // Failed to refresh players
+    }
+  }, [state.roomId, state.playerId]);
 
   const setPlayerName = useCallback((name: string) => {
     setState(prev => ({ ...prev, playerName: name }));
@@ -496,6 +524,7 @@ export function useOnlineGame() {
     confirmRole,
     newRound,
     leaveRoom,
+    refreshPlayers,
     canStartGame,
   };
 }

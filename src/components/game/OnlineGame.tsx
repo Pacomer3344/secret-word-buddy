@@ -21,6 +21,7 @@ export default function OnlineGame({ onGoHome }: OnlineGameProps) {
     confirmRole,
     newRound,
     leaveRoom,
+    refreshPlayers,
     canStartGame,
   } = useOnlineGame();
 
@@ -63,6 +64,7 @@ export default function OnlineGame({ onGoHome }: OnlineGameProps) {
         onSetImpostorCount={setImpostorCount}
         onStartGame={startGame}
         onLeaveRoom={handleLeaveRoom}
+        onRefreshPlayers={refreshPlayers}
       />
     );
   }
