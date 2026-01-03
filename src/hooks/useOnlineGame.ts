@@ -408,6 +408,27 @@ export function useOnlineGame() {
     }
   }, [state.roomId, state.isHost, state.words, state.playerId, state.playerSecret]);
 
+  const addWords = useCallback(async (words: string[]) => {
+    if (!state.roomId || !state.isHost || !state.playerSecret) return;
+    
+    // Filter out duplicates and empty strings
+    const newWordsToAdd = words
+      .map(w => w.trim())
+      .filter(w => w && !state.words.includes(w));
+    
+    if (newWordsToAdd.length === 0) return;
+
+    const newWords = [...state.words, ...newWordsToAdd];
+    try {
+      await callGameAction(state.playerId, state.playerSecret, 'update_room', {
+        roomId: state.roomId,
+        words: newWords,
+      });
+    } catch {
+      // Error adding words - handled silently
+    }
+  }, [state.roomId, state.isHost, state.words, state.playerId, state.playerSecret]);
+
   const removeWord = useCallback(async (word: string) => {
     if (!state.roomId || !state.isHost || !state.playerSecret) return;
 
@@ -518,6 +539,7 @@ export function useOnlineGame() {
     createRoom,
     joinRoom,
     addWord,
+    addWords,
     removeWord,
     setImpostorCount,
     startGame,
