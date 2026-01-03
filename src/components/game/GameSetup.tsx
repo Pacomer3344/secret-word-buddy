@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Plus, X, Users, UserX, Play, Home, HelpCircle, FileSpreadsheet } from 'lucide-react';
+import { Plus, X, Users, UserX, Play, Home, HelpCircle, FileSpreadsheet, FolderOpen, Loader2 } from 'lucide-react';
 import { useExcelImport } from '@/hooks/useExcelImport';
+import { useWordCategories } from '@/hooks/useWordCategories';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -17,6 +18,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 
 interface GameSetupProps {
   words: string[];
@@ -44,9 +50,15 @@ export function GameSetup({
   canStart,
 }: GameSetupProps) {
   const [newWord, setNewWord] = useState('');
+  const [categoryOpen, setCategoryOpen] = useState(false);
   
   const { fileInputRef, handleFileChange, triggerFileSelect } = useExcelImport((importedWords) => {
     importedWords.forEach(word => onAddWord(word));
+  });
+  
+  const { categories, loading: loadingCategories, selectCategory } = useWordCategories((categoryWords) => {
+    categoryWords.forEach(word => onAddWord(word));
+    setCategoryOpen(false);
   });
 
   const handleAddWord = () => {
@@ -160,6 +172,38 @@ export function GameSetup({
             <Button onClick={triggerFileSelect} size="icon" variant="outline" className="shrink-0" title="Importar desde Excel">
               <FileSpreadsheet className="h-5 w-5" />
             </Button>
+            <Popover open={categoryOpen} onOpenChange={setCategoryOpen}>
+              <PopoverTrigger asChild>
+                <Button size="icon" variant="outline" className="shrink-0" title="Elegir categoría">
+                  <FolderOpen className="h-5 w-5" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-2" align="end">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium px-2 py-1">Categorías</p>
+                  {loadingCategories ? (
+                    <div className="flex items-center justify-center py-4">
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : (
+                    categories.map((cat) => (
+                      <Button
+                        key={cat.id}
+                        variant="ghost"
+                        className="w-full justify-start text-left"
+                        onClick={() => selectCategory(cat)}
+                      >
+                        <span className="mr-2">{cat.icon}</span>
+                        {cat.name}
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          {cat.words.length}
+                        </span>
+                      </Button>
+                    ))
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
             <input
               ref={fileInputRef}
               type="file"

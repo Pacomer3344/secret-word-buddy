@@ -91,6 +91,30 @@ export type Database = {
           },
         ]
       }
+      word_categories: {
+        Row: {
+          created_at: string
+          icon: string | null
+          id: string
+          name: string
+          words: string[]
+        }
+        Insert: {
+          created_at?: string
+          icon?: string | null
+          id?: string
+          name: string
+          words?: string[]
+        }
+        Update: {
+          created_at?: string
+          icon?: string | null
+          id?: string
+          name?: string
+          words?: string[]
+        }
+        Relationships: []
+      }
     }
     Views: {
       room_players_safe: {
