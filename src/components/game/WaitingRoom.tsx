@@ -15,7 +15,8 @@ import {
   HelpCircle,
   FileSpreadsheet,
   FolderOpen,
-  Loader2
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 import { useExcelImport } from '@/hooks/useExcelImport';
 import { useWordCategories } from '@/hooks/useWordCategories';
@@ -57,6 +58,7 @@ interface WaitingRoomProps {
   onSetImpostorCount: (count: number) => void;
   onStartGame: () => Promise<{ error?: string; success?: boolean }>;
   onLeaveRoom: () => void;
+  onRefreshPlayers: () => void;
 }
 
 export default function WaitingRoom({
@@ -71,6 +73,7 @@ export default function WaitingRoom({
   onSetImpostorCount,
   onStartGame,
   onLeaveRoom,
+  onRefreshPlayers,
 }: WaitingRoomProps) {
   const [newWord, setNewWord] = useState('');
   const [copied, setCopied] = useState(false);
@@ -184,9 +187,19 @@ export default function WaitingRoom({
         {/* Players */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="w-5 h-5" />
-              Jugadores ({players.length})
+            <CardTitle className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                Jugadores ({players.length})
+              </div>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={onRefreshPlayers}
+                title="Actualizar lista"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </Button>
             </CardTitle>
           </CardHeader>
           <CardContent>
